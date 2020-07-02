@@ -342,6 +342,8 @@ public class HAService {
             this.selector = RemotingUtil.openSelector();
         }
 
+
+
         public void updateMasterAddress(final String newAddr) {
             String currentAddr = this.masterAddress.get();
             if (currentAddr == null || !currentAddr.equals(newAddr)) {

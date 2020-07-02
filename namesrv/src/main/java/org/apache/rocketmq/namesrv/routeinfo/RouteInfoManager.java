@@ -45,14 +45,23 @@ import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 import org.apache.rocketmq.common.sysflag.TopicSysFlag;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
 
+/**
+ * RouteInfoManager主要是维护了topic/broker/cluster/filter这些东西的路由信息，
+ * 同样支持增删改查的操作，还有各种schedule的定时扫描，比如将不活跃的broker剔除
+ */
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    // 每个topic管理多个queue
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    // 管理broker
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    // 一个cluster维护多个brokerName
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    // 维护活跃的broker信息
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    //
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -99,6 +108,37 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+
+    /**
+     *
+     * topicConfigWrapper 实例如下
+     *
+     * {
+     *   "topicConfigSerializeWrapper": {
+     *       "topicConfigTable":{
+     *          "topic_1":{
+     *           "defaultReadQueueNums":"1",
+     *           "defaultWriteQueueNums":"1",
+     *           "topicName":"topicname",
+     *           "readQueueNums":"5",
+     *           "writeQueueNums":"5",
+     *           "perm":"",
+     *           "topicFilterType":"",
+     *           "topicSysFlag":"",
+     *           "order":""
+     *          },
+     *       },
+     *       "dataVersion":{
+     *          "timestamp":"1562688000",
+     *          "counter":"xxxx"
+     *       }
+     *    },
+     *   "filterServerList":[
+     *      "127.0.0.1",
+     *   ]
+     * }
+     *
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -111,8 +151,10 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
+                //使用AQS获取同步状态
                 this.lock.writeLock().lockInterruptibly();
 
+                //通过clustername获取broker信息，如果为空，则初始化
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -122,6 +164,7 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
+                //获取broker信息，如果为空，则初始化brokerData
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
                     registerFirst = true;
@@ -142,12 +185,13 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
-                if (null != topicConfigWrapper
-                    && MixAll.MASTER_ID == brokerId) {
+                // 如果有topic相关的信息&&brokerid是0
+                if (null != topicConfigWrapper && MixAll.MASTER_ID == brokerId) {
+                    //如果broker对应的dataVersion为空或者已经发生改变
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
                         || registerFirst) {
-                        ConcurrentMap<String, TopicConfig> tcTable =
-                            topicConfigWrapper.getTopicConfigTable();
+                        //从topicConfigWrapper获取tcTable
+                        ConcurrentMap<String, TopicConfig> tcTable = topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
                             for (Map.Entry<String, TopicConfig> entry : tcTable.entrySet()) {
                                 this.createAndUpdateQueueData(brokerName, entry.getValue());
@@ -162,6 +206,7 @@ public class RouteInfoManager {
                         topicConfigWrapper.getDataVersion(),
                         channel,
                         haServerAddr));
+
                 if (null == prevBrokerLiveInfo) {
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }

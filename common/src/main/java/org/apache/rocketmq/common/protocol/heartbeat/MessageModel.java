@@ -26,10 +26,16 @@ package org.apache.rocketmq.common.protocol.heartbeat;
 public enum MessageModel {
     /**
      * broadcast
+     *
+     * 同一个ConsumerGroup里的每个Consumer都能消费到所订阅Topic的全部消息，
+     * 也就是一个消息会被多次分发，被多个Consumer消费
      */
     BROADCASTING("BROADCASTING"),
     /**
      * clustering
+     *
+     * 同一个ConsumerGroup里的每个Consumer只消费所订阅消息的一部分内容，
+     * 同一个ConsumerGroup里所有的Consumer消费的内容合起来才是所订阅Topic内容的整体，从而达到负载均衡的目的
      */
     CLUSTERING("CLUSTERING");
 

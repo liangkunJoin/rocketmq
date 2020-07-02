@@ -177,8 +177,9 @@ public class BrokerOuterAPI {
         final int timeoutMills,
         final RegisterBrokerRequestHeader requestHeader,
         final byte[] body
-    ) throws RemotingCommandException, MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException,
-        InterruptedException {
+    ) throws RemotingCommandException, MQBrokerException, RemotingConnectException,
+            RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.REGISTER_BROKER, requestHeader);
         request.setBody(body);
 

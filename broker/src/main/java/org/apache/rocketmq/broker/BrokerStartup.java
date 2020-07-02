@@ -55,6 +55,7 @@ public class BrokerStartup {
     public static InternalLogger log;
 
     public static void main(String[] args) {
+        System.setProperty("rocketmq.home.dir", "/Users/liang/workspace/resource_code/rocketmq/distribution");
         start(createBrokerController(args));
     }
 
@@ -88,12 +89,15 @@ public class BrokerStartup {
     }
 
     public static BrokerController createBrokerController(String[] args) {
+
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
 
+        // 设置了Netty通信时的缓冲区大小，这里默认是128K
         if (null == System.getProperty(NettySystemConfig.COM_ROCKETMQ_REMOTING_SOCKET_SNDBUF_SIZE)) {
             NettySystemConfig.socketSndbufSize = 131072;
         }
 
+        // 设置了Netty通信时的缓冲区大小，这里默认是128K
         if (null == System.getProperty(NettySystemConfig.COM_ROCKETMQ_REMOTING_SOCKET_RCVBUF_SIZE)) {
             NettySystemConfig.socketRcvbufSize = 131072;
         }
@@ -107,20 +111,29 @@ public class BrokerStartup {
                 System.exit(-1);
             }
 
+            // 用来封装其绝大多数基本配置信息
             final BrokerConfig brokerConfig = new BrokerConfig();
+            // 封装了其作为对外暴露的消息队列服务器的信息
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+            // 封装了其作为NameServer客户端的信息
             final NettyClientConfig nettyClientConfig = new NettyClientConfig();
 
+            // NettyClientConfig的TLS进行设置,让NettyServerConfig默认监听10911端口
             nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
                 String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
             nettyServerConfig.setListenPort(10911);
+
+            // 封装Store的信息
             final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
 
+            // Slave，则需要调整其允许的消息最大内存占比，默认值是40，
+            // 也就是说Master允许消息最大内存占用40%，而Slave则只允许30%
             if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
                 int ratio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10;
                 messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
             }
 
+            // 相应配置文件配置加载
             if (commandLine.hasOption('c')) {
                 String file = commandLine.getOptionValue('c');
                 if (file != null) {
@@ -147,6 +160,7 @@ public class BrokerStartup {
                 System.exit(-2);
             }
 
+            // 对namesrvAddr进行了检查，只是简单地检查NameServer集群地址信息是否合法
             String namesrvAddr = brokerConfig.getNamesrvAddr();
             if (null != namesrvAddr) {
                 try {
@@ -162,6 +176,7 @@ public class BrokerStartup {
                 }
             }
 
+            // 根据角色，验证broker Id
             switch (messageStoreConfig.getBrokerRole()) {
                 case ASYNC_MASTER:
                 case SYNC_MASTER:
@@ -178,10 +193,12 @@ public class BrokerStartup {
                     break;
             }
 
+            // 是否开启 DLegerCommitLog 文件存储，默认不开启
             if (messageStoreConfig.isEnableDLegerCommitLog()) {
                 brokerConfig.setBrokerId(-1);
             }
 
+            // 对Store设置HA的监听端口，是NettyServer侦听端口加1
             messageStoreConfig.setHaListenPort(nettyServerConfig.getListenPort() + 1);
             LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
             JoranConfigurator configurator = new JoranConfigurator();
@@ -189,6 +206,7 @@ public class BrokerStartup {
             lc.reset();
             configurator.doConfigure(brokerConfig.getRocketmqHome() + "/conf/logback_broker.xml");
 
+            // 对“-p”，”-m“指令进行相应配置的加载，
             if (commandLine.hasOption('p')) {
                 InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.BROKER_CONSOLE_NAME);
                 MixAll.printObjectProperties(console, brokerConfig);
@@ -205,19 +223,24 @@ public class BrokerStartup {
                 System.exit(0);
             }
 
+            // 以及日志的相关配置
             log = InternalLoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
             MixAll.printObjectProperties(log, brokerConfig);
             MixAll.printObjectProperties(log, nettyServerConfig);
             MixAll.printObjectProperties(log, nettyClientConfig);
             MixAll.printObjectProperties(log, messageStoreConfig);
 
+            // 实例化broker的控制器
             final BrokerController controller = new BrokerController(
                 brokerConfig,
                 nettyServerConfig,
                 nettyClientConfig,
                 messageStoreConfig);
+
+
             // remember all configs to prevent discard
             controller.getConfiguration().registerConfig(properties);
+
 
             boolean initResult = controller.initialize();
             if (!initResult) {
