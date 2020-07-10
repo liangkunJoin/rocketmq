@@ -51,16 +51,20 @@ public class AllocateMessageQueueAveragely implements AllocateMessageQueueStrate
             return result;
         }
 
+        /**
+         * 接着会根据消费者的数量以及消息的数量，进行消息的分配，以此达到消费者端的负载均衡
+         * 这里采用的是平均分配的方式，利用消息的数量以及消费者的数量就，计算出当前消费者需要消费哪部分消息
+         */
         int index = cidAll.indexOf(currentCID);
         int mod = mqAll.size() % cidAll.size();
-        int averageSize =
-            mqAll.size() <= cidAll.size() ? 1 : (mod > 0 && index < mod ? mqAll.size() / cidAll.size()
-                + 1 : mqAll.size() / cidAll.size());
+        int averageSize = mqAll.size() <= cidAll.size() ? 1 :
+                (mod > 0 && index < mod ? mqAll.size() / cidAll.size() + 1 : mqAll.size() / cidAll.size());
         int startIndex = (mod > 0 && index < mod) ? index * averageSize : index * averageSize + mod;
         int range = Math.min(averageSize, mqAll.size() - startIndex);
         for (int i = 0; i < range; i++) {
             result.add(mqAll.get((startIndex + i) % mqAll.size()));
         }
+
         return result;
     }
 

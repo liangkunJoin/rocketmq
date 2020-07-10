@@ -207,12 +207,15 @@ public class MappedFile extends ReferenceResource {
             byteBuffer.position(currentPos);
             AppendMessageResult result;
             if (messageExt instanceof MessageExtBrokerInner) {
-                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
+                result = cb.doAppend(this.getFileFromOffset(), byteBuffer,
+                        this.fileSize - currentPos, (MessageExtBrokerInner) messageExt);
             } else if (messageExt instanceof MessageExtBatch) {
-                result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos, (MessageExtBatch) messageExt);
+                result = cb.doAppend(this.getFileFromOffset(), byteBuffer,
+                        this.fileSize - currentPos, (MessageExtBatch) messageExt);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 根据往缓冲区写入的数据大小，修改wrotePosition这个AtomicInteger值，以便下次的定位
             this.wrotePosition.addAndGet(result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -225,6 +228,11 @@ public class MappedFile extends ReferenceResource {
         return this.fileFromOffset;
     }
 
+    /**
+     * 这里就通过JDK的NIO提供的API完成20字节数据从currentPos起始位置的追加
+     * @param data
+     * @return
+     */
     public boolean appendMessage(final byte[] data) {
         int currentPos = this.wrotePosition.get();
 
@@ -269,6 +277,7 @@ public class MappedFile extends ReferenceResource {
      * @return The current flushed position
      */
     public int flush(final int flushLeastPages) {
+
         if (this.isAbleToFlush(flushLeastPages)) {
             if (this.hold()) {
                 int value = getReadPosition();
@@ -276,8 +285,12 @@ public class MappedFile extends ReferenceResource {
                 try {
                     //We only append data to fileChannel or mappedByteBuffer, never both.
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
+                        // 开启内存字节缓冲区的情况下，其实是进行了两次缓存才写入磁盘，
+                        // 缓存到writeBuffer -> 缓存到fileChannel -> 写入磁盘 （前面说过的开启内存字节缓冲区情况下）
                         this.fileChannel.force(false);
                     } else {
+                        // 开启内存字节缓冲区的情况下，是将mappedByteBuffer中的内容写入磁盘
+                        // 缓存到mappedByteBuffer -> 写入磁盘；同步刷盘、以及一种（默认）异步刷盘
                         this.mappedByteBuffer.force();
                     }
                 } catch (Throwable e) {
@@ -294,6 +307,8 @@ public class MappedFile extends ReferenceResource {
         return this.getFlushedPosition();
     }
 
+
+
     public int commit(final int commitLeastPages) {
         if (writeBuffer == null) {
             //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
@@ -308,6 +323,12 @@ public class MappedFile extends ReferenceResource {
             }
         }
 
+        /**
+         * 在向fileCfihannel缓存完毕后，会检查committedPosition是否达到了fileSize，
+         * 也就是判断writeBuffer中的内容是不是去全部提交完毕，
+         * 若是全部提交，需要通过transientStorePool的returnBuffer方法来回收利用writeBuffer
+         * transientStorePool其实是一个双向队列，由CommitLog来管理
+         */
         // All dirty data has been committed to FileChannel.
         if (writeBuffer != null && this.transientStorePool != null && this.fileSize == this.committedPosition.get()) {
             this.transientStorePool.returnBuffer(writeBuffer);
@@ -317,6 +338,14 @@ public class MappedFile extends ReferenceResource {
         return this.committedPosition.get();
     }
 
+    /**
+     * 先将消息缓存在writeBuffer中而不是之前的mappedByteBuffer
+     * 这里就可以清楚地看到将writeBuffer中从lastCommittedPosition（上次提交位置）
+     * 开始到writePos（缓存消息结束位置）的内容缓存到了fileChannel中相同的位置，并没有写入磁盘
+     * 在缓存到fileChannel后，会更新committedPosition值
+     * @param commitLeastPages
+     * @return
+     */
     protected void commit0(final int commitLeastPages) {
         int writePos = this.wrotePosition.get();
         int lastCommittedPosition = this.committedPosition.get();
@@ -398,6 +427,14 @@ public class MappedFile extends ReferenceResource {
         return null;
     }
 
+    /**
+     * 这里通过JDK的NIO操作，将文件从pos起始到readPosition结束的数据（所有的消息信息）放入byteBufferNew中
+     *
+     * 然后将这些信息封装在SelectMappedBufferResult中
+     *
+     * @param pos
+     * @return
+     */
     public SelectMappedBufferResult selectMappedBuffer(int pos) {
         int readPosition = getReadPosition();
         if (pos < readPosition && pos >= 0) {

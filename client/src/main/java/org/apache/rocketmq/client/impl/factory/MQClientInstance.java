@@ -230,26 +230,36 @@ public class MQClientInstance {
             switch (this.serviceState) {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
-                    // If not specified,looking address from name server
                     // //如果未配置namesrv的地址，则通过指定的Url拉去
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
-                    // 打开netty通道
+
+                    // 完成对Netty客户端的绑定操作
                     this.mQClientAPIImpl.start();
-                    // 启定时扫描任务包括固定频率拉去namesrv地址，更新topic信息等等，具体可以看看源码
+
+                    // 设置5个定时任务
+                    // 1、若是名称服务地址namesrvAddr不存在，则调用前面的fetchNameServerAddr方法，定时更新名称服务
+                    // 2、定时更新Topic所对应的路由信息
+                    // 3、定时清除离线的Broker，以及向当前在线的Broker发送心跳包
+                    // 4、定时持久化消费者队列的消费进度
+                    // 5、定时调整消费者端的线程池的大小
                     this.startScheduledTask();
+
+
                     // 打开消息拉去服务
                     this.pullMessageService.start();
-                    // Start rebalance service
+
+                    // 对PullConsumer来说rebalanceService服务的开启才是最重要的
                     this.rebalanceService.start();
-                    // Start push service
+                    //
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
                     break;
                 case START_FAILED:
-                    throw new MQClientException("The Factory object[" + this.getClientId() + "] has been created before, and failed.", null);
+                    throw new MQClientException("The Factory object[" + this.getClientId() +
+                                                "] has been created before, and failed.", null);
                 default:
                     break;
             }
@@ -258,7 +268,7 @@ public class MQClientInstance {
 
     private void startScheduledTask() {
 
-        // 定时拉去服务中心地址
+        // 1、定时拉去服务中心地址
         if (null == this.clientConfig.getNamesrvAddr()) {
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
@@ -273,7 +283,7 @@ public class MQClientInstance {
             }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
         }
 
-        // 定时更新TopicRoute信息
+        // 2、定时更新TopicRoute信息
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -286,7 +296,7 @@ public class MQClientInstance {
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
 
-        // 定时向所有的Broker发送心跳信息
+        // 3、定时向所有的Broker发送心跳信息
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -301,7 +311,7 @@ public class MQClientInstance {
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
 
 
-        //
+        // 4、定时持久化消费者队列的消费进度
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -315,7 +325,7 @@ public class MQClientInstance {
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
 
 
-        //
+        // 5、定时适配处理消息的核心线程数
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -1010,6 +1020,11 @@ public class MQClientInstance {
         boolean slave = false;
         boolean found = false;
 
+        /**
+         * borker的路由信息会由定时更新Topic所对应的路由信息 ，
+         * 来完成更新，在brokerAddrTable中只要找的一个Broker的信息后，
+         * 将其封装为FindBrokerResult返回
+         */
         HashMap<Long/* brokerId */, String/* address */> map = this.brokerAddrTable.get(brokerName);
         if (map != null && !map.isEmpty()) {
             for (Map.Entry<Long, String> entry : map.entrySet()) {
@@ -1044,16 +1059,24 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 这里就根据brokerAddrTable表查找该BrokerID对应的Broker的地址信息，以及是否是slave
+     * 封装为FindBrokerResult返回
+     *
+     * @param brokerName
+     * @param brokerId
+     * @param onlyThisBroker
+     * @return
+     */
     public FindBrokerResult findBrokerAddressInSubscribe(
-        final String brokerName,
-        final long brokerId,
-        final boolean onlyThisBroker
-    ) {
+        final String brokerName, final long brokerId, final boolean onlyThisBroker) {
+
         String brokerAddr = null;
         boolean slave = false;
         boolean found = false;
 
         HashMap<Long/* brokerId */, String/* address */> map = this.brokerAddrTable.get(brokerName);
+
         if (map != null && !map.isEmpty()) {
             brokerAddr = map.get(brokerId);
             slave = brokerId != MixAll.MASTER_ID;
@@ -1093,6 +1116,7 @@ public class MQClientInstance {
 
         if (null != brokerAddr) {
             try {
+
                 return this.mQClientAPIImpl.getConsumerIdListByGroup(brokerAddr, group, 3000);
             } catch (Exception e) {
                 log.warn("getConsumerIdListByGroup exception, " + brokerAddr + " " + group, e);

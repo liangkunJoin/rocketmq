@@ -718,8 +718,9 @@ public class MQClientAPIImpl {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws RemotingException, MQBrokerException, InterruptedException {
-        RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.PULL_MESSAGE, requestHeader);
 
+        RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.PULL_MESSAGE, requestHeader);
+        // 同步拉取或异步拉取
         switch (communicationMode) {
             case ONEWAY:
                 assert false;
@@ -743,10 +744,13 @@ public class MQClientAPIImpl {
         final long timeoutMillis,
         final PullCallback pullCallback
     ) throws RemotingException, InterruptedException {
+
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
+
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
                 RemotingCommand response = responseFuture.getResponseCommand();
+
                 if (response != null) {
                     try {
                         PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response);
@@ -757,12 +761,16 @@ public class MQClientAPIImpl {
                     }
                 } else {
                     if (!responseFuture.isSendRequestOK()) {
-                        pullCallback.onException(new MQClientException("send request failed to " + addr + ". Request: " + request, responseFuture.getCause()));
+                        pullCallback.onException(new MQClientException("send request failed to " + addr
+                                + ". Request: " + request, responseFuture.getCause()));
                     } else if (responseFuture.isTimeout()) {
-                        pullCallback.onException(new MQClientException("wait response from " + addr + " timeout :" + responseFuture.getTimeoutMillis() + "ms" + ". Request: " + request,
-                            responseFuture.getCause()));
+                        pullCallback.onException(new MQClientException("wait response from " + addr
+                                + " timeout :" + responseFuture.getTimeoutMillis() + "ms"
+                                + ". Request: " + request, responseFuture.getCause()));
                     } else {
-                        pullCallback.onException(new MQClientException("unknown reason. addr: " + addr + ", timeoutMillis: " + timeoutMillis + ". Request: " + request, responseFuture.getCause()));
+                        pullCallback.onException(new MQClientException("unknown reason. addr: " + addr
+                                + ", timeoutMillis: " + timeoutMillis + ". Request: "
+                                + request, responseFuture.getCause()));
                     }
                 }
             }
@@ -774,14 +782,17 @@ public class MQClientAPIImpl {
         final RemotingCommand request,
         final long timeoutMillis
     ) throws RemotingException, InterruptedException, MQBrokerException {
+        // 调用服务端拉取消息
         RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
         assert response != null;
+        // 相应请求
         return this.processPullResponse(response);
     }
 
     private PullResult processPullResponse(
         final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
         PullStatus pullStatus = PullStatus.NO_NEW_MSG;
+        // 根据响应的状态，设置PullStatus状态
         switch (response.getCode()) {
             case ResponseCode.SUCCESS:
                 pullStatus = PullStatus.FOUND;
@@ -800,11 +811,14 @@ public class MQClientAPIImpl {
                 throw new MQBrokerException(response.getCode(), response.getRemark());
         }
 
+        // 通过decodeCommandCustomHeader方法，将响应中的信息解码
         PullMessageResponseHeader responseHeader =
             (PullMessageResponseHeader) response.decodeCommandCustomHeader(PullMessageResponseHeader.class);
-
-        return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(),
-            responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody());
+        // 封装消息信息
+        return new PullResultExt(pullStatus,
+                responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(),
+                responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(),
+                response.getBody());
     }
 
     public MessageExt viewMessage(final String addr, final long phyoffset, final long timeoutMillis)
@@ -885,20 +899,27 @@ public class MQClientAPIImpl {
     public List<String> getConsumerIdListByGroup(
         final String addr,
         final String consumerGroup,
-        final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException,
+        final long timeoutMillis)
+            throws RemotingConnectException,
+            RemotingSendRequestException, RemotingTimeoutException,
         MQBrokerException, InterruptedException {
+
         GetConsumerListByGroupRequestHeader requestHeader = new GetConsumerListByGroupRequestHeader();
         requestHeader.setConsumerGroup(consumerGroup);
-        RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_CONSUMER_LIST_BY_GROUP, requestHeader);
+        RemotingCommand request = RemotingCommand.createRequestCommand(
+                RequestCode.GET_CONSUMER_LIST_BY_GROUP, requestHeader);
 
-        RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr),
-            request, timeoutMillis);
+        RemotingCommand response = this.remotingClient.invokeSync(
+                MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
         assert response != null;
         switch (response.getCode()) {
             case ResponseCode.SUCCESS: {
                 if (response.getBody() != null) {
+
                     GetConsumerListByGroupResponseBody body =
-                        GetConsumerListByGroupResponseBody.decode(response.getBody(), GetConsumerListByGroupResponseBody.class);
+                        GetConsumerListByGroupResponseBody.decode(response.getBody(),
+                                GetConsumerListByGroupResponseBody.class);
                     return body.getConsumerIdList();
                 }
             }

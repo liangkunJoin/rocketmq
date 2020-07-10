@@ -38,7 +38,7 @@ public class MappedFileQueue {
     private final String storePath;
 
     private final int mappedFileSize;
-
+    // 映射每一个commitlog文件
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
 
     private final AllocateMappedFileService allocateMappedFileService;
@@ -439,10 +439,19 @@ public class MappedFileQueue {
         return result;
     }
 
+    /**
+     * 在完成mappedFile的commit后，通过where和committedWhere来判断是否真的向fileCfihannel缓存了 ，
+     * 只有确实缓存了result才是false！
+     * 之后会更新committedWhere，并返回result
+     * @param commitLeastPages
+     * @return
+     */
     public boolean commit(final int commitLeastPages) {
         boolean result = true;
-        MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
+        MappedFile mappedFile =
+                this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
         if (mappedFile != null) {
+            // this.committedPosition or fileSize
             int offset = mappedFile.commit(commitLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.committedWhere;
@@ -463,15 +472,21 @@ public class MappedFileQueue {
         try {
             MappedFile firstMappedFile = this.getFirstMappedFile();
             MappedFile lastMappedFile = this.getLastMappedFile();
+
             if (firstMappedFile != null && lastMappedFile != null) {
-                if (offset < firstMappedFile.getFileFromOffset() || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
-                    LOG_ERROR.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
+                if (offset < firstMappedFile.getFileFromOffset()
+                        || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
+                    LOG_ERROR.warn("Offset not matched. " +
+                                    "Request offset: {}, firstOffset: {}, lastOffset: {}, " +
+                                    "mappedFileSize: {}, mappedFiles count: {}",
                         offset,
                         firstMappedFile.getFileFromOffset(),
                         lastMappedFile.getFileFromOffset() + this.mappedFileSize,
                         this.mappedFileSize,
                         this.mappedFiles.size());
                 } else {
+
+                    // 通过偏移量获取对应的 mappedFile
                     int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MappedFile targetFile = null;
                     try {

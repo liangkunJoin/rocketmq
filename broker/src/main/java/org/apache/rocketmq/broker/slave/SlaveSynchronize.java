@@ -46,9 +46,13 @@ public class SlaveSynchronize {
     }
 
     public void syncAll() {
+        // 同步topic的配置信息
         this.syncTopicConfig();
+        // 同步Consumer的Offset信息
         this.syncConsumerOffset();
+        // 同步延迟队列信息
         this.syncDelayOffset();
+        // 同步订阅信息
         this.syncSubscriptionGroupConfig();
     }
 
@@ -56,8 +60,11 @@ public class SlaveSynchronize {
         String masterAddrBak = this.masterAddr;
         if (masterAddrBak != null && !masterAddrBak.equals(brokerController.getBrokerAddr())) {
             try {
+                // 从 master节点中获取topic的元数据信息
                 TopicConfigSerializeWrapper topicWrapper =
                     this.brokerController.getBrokerOuterAPI().getAllTopicConfig(masterAddrBak);
+
+                // 判断版本是否一致
                 if (!this.brokerController.getTopicConfigManager().getDataVersion()
                     .equals(topicWrapper.getDataVersion())) {
 

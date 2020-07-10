@@ -23,9 +23,10 @@ import org.apache.rocketmq.logging.InternalLogger;
 
 public class RebalanceService extends ServiceThread {
     private static long waitInterval =
-        Long.parseLong(System.getProperty(
-            "rocketmq.client.rebalance.waitInterval", "20000"));
+        Long.parseLong(System.getProperty("rocketmq.client.rebalance.waitInterval", "20000"));
+
     private final InternalLogger log = ClientLogger.getLog();
+
     private final MQClientInstance mqClientFactory;
 
     public RebalanceService(MQClientInstance mqClientFactory) {
@@ -34,8 +35,16 @@ public class RebalanceService extends ServiceThread {
 
     @Override
     public void run() {
+
         log.info(this.getServiceName() + " service started");
 
+        /**
+         * 里的waitForRunning和Broker的刷盘以及主从复制类似，
+         * 会进行超时阻塞（默认20s），
+         * 也可以通过Broker发送的NOTIFY_CONSUMER_IDS_CHANGED请求将其唤醒，
+         *
+         * 之后会调用doRebalance方法
+         */
         while (!this.isStopped()) {
             this.waitForRunning(waitInterval);
             this.mqClientFactory.doRebalance();

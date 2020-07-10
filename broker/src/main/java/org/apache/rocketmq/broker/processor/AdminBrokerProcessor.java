@@ -461,11 +461,14 @@ public class AdminBrokerProcessor extends AsyncNettyRequestProcessor implements 
     }
 
     private RemotingCommand getAllTopicConfig(ChannelHandlerContext ctx, RemotingCommand request) {
-        final RemotingCommand response = RemotingCommand.createResponseCommand(GetAllTopicConfigResponseHeader.class);
-        // final GetAllTopicConfigResponseHeader responseHeader =
-        // (GetAllTopicConfigResponseHeader) response.readCustomHeader();
 
+        final RemotingCommand response = RemotingCommand.createResponseCommand(GetAllTopicConfigResponseHeader.class);
+
+        // 这里会将TopicConfigManager中保存的topicConfigTable：
+        // 将这个map通过encode方法转换成json字符串，再通过Netty发送给slave
+        // 将这个map通过encode方法转换成json字符串，再通过Netty发送给slave
         String content = this.brokerController.getTopicConfigManager().encode();
+
         if (content != null && content.length() > 0) {
             try {
                 response.setBody(content.getBytes(MixAll.DEFAULT_CHARSET));

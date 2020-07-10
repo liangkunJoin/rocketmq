@@ -247,6 +247,7 @@ public class IndexService {
 
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {
         for (boolean ok = indexFile.putKey(idxKey, msg.getCommitLogOffset(), msg.getStoreTimestamp()); !ok; ) {
+
             log.warn("Index file [" + indexFile.getFileName() + "] is full, trying to create another one");
 
             indexFile = retryGetAndCreateIndexFile();

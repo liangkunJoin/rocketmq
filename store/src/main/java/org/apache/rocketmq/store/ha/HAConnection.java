@@ -48,11 +48,16 @@ public class HAConnection {
         this.socketChannel.socket().setTcpNoDelay(true);
         this.socketChannel.socket().setReceiveBufferSize(1024 * 64);
         this.socketChannel.socket().setSendBufferSize(1024 * 64);
+        // 向slave发送数据
         this.writeSocketService = new WriteSocketService(this.socketChannel);
+        // 处理读取slave发送的数据
         this.readSocketService = new ReadSocketService(this.socketChannel);
         this.haService.getConnectionCount().incrementAndGet();
     }
 
+    /**
+     * 这里会启动两个线程，分别处理读取slave发送的数据，以及向slave发送数据
+     */
     public void start() {
         this.readSocketService.start();
         this.writeSocketService.start();
@@ -106,9 +111,12 @@ public class HAConnection {
                         break;
                     }
 
-                    long interval = HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now() - this.lastReadTimestamp;
-                    if (interval > HAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig().getHaHousekeepingInterval()) {
-                        log.warn("ha housekeeping, found this connection[" + HAConnection.this.clientAddr + "] expired, " + interval);
+                    long interval = HAConnection.this.haService.getDefaultMessageStore()
+                            .getSystemClock().now() - this.lastReadTimestamp;
+                    if (interval > HAConnection.this.haService.getDefaultMessageStore()
+                            .getMessageStoreConfig().getHaHousekeepingInterval()) {
+                        log.warn("ha housekeeping, found this connection[" + HAConnection.this.clientAddr + "] " +
+                                "expired, " + interval);
                         break;
                     }
                 } catch (Exception e) {
@@ -158,7 +166,11 @@ public class HAConnection {
                     int readSize = this.socketChannel.read(this.byteBufferRead);
                     if (readSize > 0) {
                         readSizeZeroTimes = 0;
-                        this.lastReadTimestamp = HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now();
+
+                        this.lastReadTimestamp = HAConnection.this.haService.getDefaultMessageStore()
+                                .getSystemClock().now();
+
+                        // 在确保发送过来的数据能达到8字节时，取出long类型的offset值
                         if ((this.byteBufferRead.position() - this.processPosition) >= 8) {
                             int pos = this.byteBufferRead.position() - (this.byteBufferRead.position() % 8);
                             long readOffset = this.byteBufferRead.getLong(pos - 8);
@@ -169,7 +181,7 @@ public class HAConnection {
                                 HAConnection.this.slaveRequestOffset = readOffset;
                                 log.info("slave[" + HAConnection.this.clientAddr + "] request offset " + readOffset);
                             }
-
+                            // 也就是说ReadSocketService这个线程，只是不断地读取并更新slave发送来的offset数据
                             HAConnection.this.haService.notifyTransferSome(HAConnection.this.slaveAckOffset);
                         }
                     } else if (readSize == 0) {
@@ -222,12 +234,16 @@ public class HAConnection {
                     }
 
                     if (-1 == this.nextTransferFromWhere) {
+                        // slave没有任何消息的历史记录
                         if (0 == HAConnection.this.slaveRequestOffset) {
-                            long masterOffset = HAConnection.this.haService.getDefaultMessageStore().getCommitLog().getMaxOffset();
-                            masterOffset =
-                                masterOffset
-                                    - (masterOffset % HAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig()
-                                    .getMappedFileSizeCommitLog());
+                            long masterOffset = HAConnection.this.haService.getDefaultMessageStore()
+                                    .getCommitLog().getMaxOffset();
+
+                            // 当slave没有消息的历史记录，master只会从本地最后一个CommitLog文件开始的地方，将消息数据发送给slave
+                            // getMappedFileSizeCommitLog() 是 1G
+                            masterOffset = masterOffset -
+                                    (masterOffset % HAConnection.this.haService.getDefaultMessageStore()
+                                            .getMessageStoreConfig().getMappedFileSizeCommitLog());
 
                             if (masterOffset < 0) {
                                 masterOffset = 0;
@@ -238,41 +254,52 @@ public class HAConnection {
                             this.nextTransferFromWhere = HAConnection.this.slaveRequestOffset;
                         }
 
-                        log.info("master transfer data from " + this.nextTransferFromWhere + " to slave[" + HAConnection.this.clientAddr
-                            + "], and slave request " + HAConnection.this.slaveRequestOffset);
+                        log.info("master transfer data from " + this.nextTransferFromWhere
+                                + " to slave[" + HAConnection.this.clientAddr
+                                + "], and slave request " + HAConnection.this.slaveRequestOffset);
                     }
 
+                    // 上次发送是否传输完毕，初始化是true
                     if (this.lastWriteOver) {
 
                         long interval =
-                            HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now() - this.lastWriteTimestamp;
+                            HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now()
+                                    - this.lastWriteTimestamp;
 
                         if (interval > HAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig()
                             .getHaSendHeartbeatInterval()) {
 
-                            // Build Header
+                            // Build Header ， 若5秒都没有，发送一个简单的心跳包
                             this.byteBufferHeader.position(0);
                             this.byteBufferHeader.limit(headerSize);
                             this.byteBufferHeader.putLong(this.nextTransferFromWhere);
                             this.byteBufferHeader.putInt(0);
                             this.byteBufferHeader.flip();
 
+                            // 发送包
                             this.lastWriteOver = this.transferData();
                             if (!this.lastWriteOver)
                                 continue;
                         }
                     } else {
+                        // // 发送包
                         this.lastWriteOver = this.transferData();
                         if (!this.lastWriteOver)
                             continue;
                     }
 
-                    SelectMappedBufferResult selectResult =
-                        HAConnection.this.haService.getDefaultMessageStore().getCommitLogData(this.nextTransferFromWhere);
+                    // 获取 nextTransferFromWhere 这个位置开始的所有数据
+                    SelectMappedBufferResult selectResult = HAConnection.this.haService
+                            .getDefaultMessageStore().getCommitLogData(this.nextTransferFromWhere);
+
+
+                    // 每次最多发送32k的数据
                     if (selectResult != null) {
                         int size = selectResult.getSize();
-                        if (size > HAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig().getHaTransferBatchSize()) {
-                            size = HAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig().getHaTransferBatchSize();
+                        if (size > HAConnection.this.haService
+                                .getDefaultMessageStore().getMessageStoreConfig().getHaTransferBatchSize()) {
+                            size = HAConnection.this.haService
+                                    .getDefaultMessageStore().getMessageStoreConfig().getHaTransferBatchSize();
                         }
 
                         long thisOffset = this.nextTransferFromWhere;
@@ -287,10 +314,11 @@ public class HAConnection {
                         this.byteBufferHeader.putLong(thisOffset);
                         this.byteBufferHeader.putInt(size);
                         this.byteBufferHeader.flip();
-
+                        // 发送包
                         this.lastWriteOver = this.transferData();
                     } else {
-
+                        // master已将将所有本地数据同步给了slave，那么得到的SelectMappedBufferResult就会为null
+                        // 将自身阻塞，超时等待100ms，要么一直等到超时时间到了，要么在同步双传中被同步master唤醒
                         HAConnection.this.haService.getWaitNotifyObject().allWaitForRunning(100);
                     }
                 } catch (Exception e) {
@@ -330,11 +358,13 @@ public class HAConnection {
         private boolean transferData() throws Exception {
             int writeSizeZeroTimes = 0;
             // Write Header
+            // 首先将byteBufferHeader中的12字节消息头通过socketChannel的write方法发送出去
             while (this.byteBufferHeader.hasRemaining()) {
                 int writeSize = this.socketChannel.write(this.byteBufferHeader);
                 if (writeSize > 0) {
                     writeSizeZeroTimes = 0;
-                    this.lastWriteTimestamp = HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now();
+                    this.lastWriteTimestamp = HAConnection.this.haService.getDefaultMessageStore()
+                            .getSystemClock().now();
                 } else if (writeSize == 0) {
                     if (++writeSizeZeroTimes >= 3) {
                         break;
@@ -344,6 +374,7 @@ public class HAConnection {
                 }
             }
 
+            // 从commitLog中读取的数据，为空直接返回
             if (null == this.selectMappedBufferResult) {
                 return !this.byteBufferHeader.hasRemaining();
             }
@@ -356,7 +387,8 @@ public class HAConnection {
                     int writeSize = this.socketChannel.write(this.selectMappedBufferResult.getByteBuffer());
                     if (writeSize > 0) {
                         writeSizeZeroTimes = 0;
-                        this.lastWriteTimestamp = HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now();
+                        this.lastWriteTimestamp = HAConnection.this.haService.getDefaultMessageStore()
+                                .getSystemClock().now();
                     } else if (writeSize == 0) {
                         if (++writeSizeZeroTimes >= 3) {
                             break;
@@ -367,7 +399,9 @@ public class HAConnection {
                 }
             }
 
-            boolean result = !this.byteBufferHeader.hasRemaining() && !this.selectMappedBufferResult.getByteBuffer().hasRemaining();
+            // header和数据是否都发送完了
+            boolean result = !this.byteBufferHeader.hasRemaining()
+                    && !this.selectMappedBufferResult.getByteBuffer().hasRemaining();
 
             if (!this.selectMappedBufferResult.getByteBuffer().hasRemaining()) {
                 this.selectMappedBufferResult.release();

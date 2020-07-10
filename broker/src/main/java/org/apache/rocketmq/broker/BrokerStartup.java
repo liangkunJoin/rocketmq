@@ -113,15 +113,16 @@ public class BrokerStartup {
 
             // 用来封装其绝大多数基本配置信息
             final BrokerConfig brokerConfig = new BrokerConfig();
-            // 封装了其作为对外暴露的消息队列服务器的信息
+            // 封装了其作为对外暴露的消息队列服务器的信息 让NettyServerConfig默认监听10911端口
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
+            nettyServerConfig.setListenPort(10911);
             // 封装了其作为NameServer客户端的信息
             final NettyClientConfig nettyClientConfig = new NettyClientConfig();
 
-            // NettyClientConfig的TLS进行设置,让NettyServerConfig默认监听10911端口
+            // NettyClientConfig的TLS进行设置,
             nettyClientConfig.setUseTLS(Boolean.parseBoolean(System.getProperty(TLS_ENABLE,
                 String.valueOf(TlsSystemConfig.tlsMode == TlsMode.ENFORCING))));
-            nettyServerConfig.setListenPort(10911);
+
 
             // 封装Store的信息
             final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();

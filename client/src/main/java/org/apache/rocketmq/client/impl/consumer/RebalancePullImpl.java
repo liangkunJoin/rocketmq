@@ -41,7 +41,9 @@ public class RebalancePullImpl extends RebalanceImpl {
 
     @Override
     public void messageQueueChanged(String topic, Set<MessageQueue> mqAll, Set<MessageQueue> mqDivided) {
-        MessageQueueListener messageQueueListener = this.defaultMQPullConsumerImpl.getDefaultMQPullConsumer().getMessageQueueListener();
+        MessageQueueListener messageQueueListener = this.defaultMQPullConsumerImpl.getDefaultMQPullConsumer()
+                                                        .getMessageQueueListener();
+
         if (messageQueueListener != null) {
             try {
                 messageQueueListener.messageQueueChanged(topic, mqAll, mqDivided);

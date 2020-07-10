@@ -24,6 +24,9 @@ public class PullResult {
     private final long nextBeginOffset;
     private final long minOffset;
     private final long maxOffset;
+    /**
+     * 拉取到的消息可能是多条，具体内容在PullResult 中的msgFoundList保存，MessageExt是Message的超类
+     */
     private List<MessageExt> msgFoundList;
 
     public PullResult(PullStatus pullStatus, long nextBeginOffset, long minOffset, long maxOffset,

@@ -376,11 +376,16 @@ public class ConsumeQueue {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    /**
+     * 重试次数内完成对putMessagePositionInfo的调用
+     * @param request
+     */
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         final int maxRetries = 30;
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
+            // ？
             if (isExtWriteEnable()) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 cqExtUnit.setFilterBitMap(request.getBitMap());
@@ -391,10 +396,11 @@ public class ConsumeQueue {
                 if (isExtAddr(extAddr)) {
                     tagsCode = extAddr;
                 } else {
-                    log.warn("Save consume queue extend fail, So just save tagsCode! {}, topic:{}, queueId:{}, offset:{}", cqExtUnit,
-                        topic, queueId, request.getCommitLogOffset());
+                    log.warn("Save consume queue extend fail, So just save tagsCode! {}, topic:{}, queueId:{}, " +
+                                    "offset:{}", cqExtUnit, topic, queueId, request.getCommitLogOffset());
                 }
             }
+
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
@@ -422,14 +428,18 @@ public class ConsumeQueue {
         this.defaultMessageStore.getRunningFlags().makeLogicsQueueError();
     }
 
-    private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
-        final long cqOffset) {
+    private boolean putMessagePositionInfo(final long offset, final int size,
+                                           final long tagsCode, final long cqOffset) {
 
         if (offset + size <= this.maxPhysicOffset) {
-            log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
+            log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}",
+                    maxPhysicOffset, offset);
             return true;
         }
 
+        // 将DispatchRequest中封装的CommitLogOffset、MsgSize以及tagsCode这 20字节的信息byteBufferIndex这个ByteBuffer中
+        //根据ConsumeQueueOffset即  cqOffset*CQ_STORE_UNIT_SIZE（20）计算 expectLogicOffset
+        //ConsumeQueue文件是通过20字节来存放对应CommitLog文件中的消息映射
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
@@ -438,6 +448,13 @@ public class ConsumeQueue {
 
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
+        /**
+         * 其原理和CommitLog的相同
+         *
+         * expectLogicOffset就是ConsumeQueue文件逻辑Offset，由此可以通过getLastMappedFile找到对应的文件映射MappedFile
+         *
+         * 在得到MappedFile后通过appendMessage方法，将byteBufferIndex中的数据追加在对应的ConsumeQueue文件中
+         */
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
@@ -454,22 +471,21 @@ public class ConsumeQueue {
                 long currentLogicOffset = mappedFile.getWrotePosition() + mappedFile.getFileFromOffset();
 
                 if (expectLogicOffset < currentLogicOffset) {
-                    log.warn("Build  consume queue repeatedly, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
-                        expectLogicOffset, currentLogicOffset, this.topic, this.queueId, expectLogicOffset - currentLogicOffset);
+                    log.warn("Build  consume queue repeatedly, expectLogicOffset: {} currentLogicOffset: {} " +
+                                    "Topic: {} QID: {} Diff: {}", expectLogicOffset, currentLogicOffset,
+                            this.topic, this.queueId, expectLogicOffset - currentLogicOffset);
                     return true;
                 }
 
                 if (expectLogicOffset != currentLogicOffset) {
                     LOG_ERROR.warn(
-                        "[BUG]logic queue order maybe wrong, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
-                        expectLogicOffset,
-                        currentLogicOffset,
-                        this.topic,
-                        this.queueId,
-                        expectLogicOffset - currentLogicOffset
+                        "[BUG]logic queue order maybe wrong, expectLogicOffset: {} currentLogicOffset: {} " +
+                                "Topic: {} QID: {} Diff: {}", expectLogicOffset, currentLogicOffset, this.topic,
+                                    this.queueId, expectLogicOffset - currentLogicOffset
                     );
                 }
             }
+
             this.maxPhysicOffset = offset + size;
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }

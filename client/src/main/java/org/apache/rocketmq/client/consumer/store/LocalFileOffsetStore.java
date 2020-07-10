@@ -58,6 +58,13 @@ public class LocalFileOffsetStore implements OffsetStore {
             "offsets.json";
     }
 
+
+    /**
+     * readLocalOffset方法会将offsets.json文件中的json字符串
+     * 转换成OffsetSerializeWrapper对象封装
+     *
+     * @throws MQClientException
+     */
     @Override
     public void load() throws MQClientException {
         OffsetSerializeWrapper offsetSerializeWrapper = this.readLocalOffset();
@@ -66,10 +73,7 @@ public class LocalFileOffsetStore implements OffsetStore {
 
             for (MessageQueue mq : offsetSerializeWrapper.getOffsetTable().keySet()) {
                 AtomicLong offset = offsetSerializeWrapper.getOffsetTable().get(mq);
-                log.info("load consumer's offset, {} {} {}",
-                    this.groupName,
-                    mq,
-                    offset.get());
+                log.info("load consumer's offset, {} {} {}", this.groupName, mq, offset.get());
             }
         }
     }

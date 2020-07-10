@@ -327,12 +327,19 @@ public class BrokerOuterAPI {
     public TopicConfigSerializeWrapper getAllTopicConfig(
         final String addr) throws RemotingConnectException, RemotingSendRequestException,
         RemotingTimeoutException, InterruptedException, MQBrokerException {
+
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ALL_TOPIC_CONFIG, null);
 
-        RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(true, addr), request, 3000);
+        // 通过MixAll的brokerVIPChannel方法，得到对应的master地址的VIP通道地址，就是端口号减2
+        RemotingCommand response = this.remotingClient
+                .invokeSync(MixAll.brokerVIPChannel(true, addr), request, 3000);
+
         assert response != null;
+
+        // 在同步发送的情况下，会等待会送响应，
         switch (response.getCode()) {
             case ResponseCode.SUCCESS: {
+                // 通过decode解码，将json字符串转换为map封装在 TopicConfigSerializeWrapper中
                 return TopicConfigSerializeWrapper.decode(response.getBody(), TopicConfigSerializeWrapper.class);
             }
             default:

@@ -26,8 +26,13 @@ import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
  * Wrapper class for offset serialization
  */
 public class OffsetSerializeWrapper extends RemotingSerializable {
-    private ConcurrentMap<MessageQueue, AtomicLong> offsetTable =
-        new ConcurrentHashMap<MessageQueue, AtomicLong>();
+
+    /**
+     * 从这里就可里大致理解 offsets.json 文件中的内容，其中AtomicLong就对应MessageQueue下具体的Offset
+     * 之后在load方法中，会将该map保存在LocalFileOffsetStore中的offsetTable中
+     *
+     */
+    private ConcurrentMap<MessageQueue, AtomicLong> offsetTable = new ConcurrentHashMap<MessageQueue, AtomicLong>();
 
     public ConcurrentMap<MessageQueue, AtomicLong> getOffsetTable() {
         return offsetTable;

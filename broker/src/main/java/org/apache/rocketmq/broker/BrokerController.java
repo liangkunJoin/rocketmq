@@ -643,7 +643,7 @@ public class BrokerController {
 
     public void registerProcessor() {
         /**
-         * SendMessageProcessor
+         * SendMessageProcessor  处理请求中的数据
          */
         SendMessageProcessor sendProcessor = new SendMessageProcessor(this);
         sendProcessor.registerSendMessageHook(sendMessageHookList);
@@ -947,14 +947,18 @@ public class BrokerController {
     }
 
     public void start() throws Exception {
+
+        // 数据存储服务
         if (this.messageStore != null) {
             this.messageStore.start();
         }
 
+        // 启动remotingServer建立物理层的网络侦听
         if (this.remotingServer != null) {
             this.remotingServer.start();
         }
 
+        // 启动fastRemotingServer建立物理层的网络侦听
         if (this.fastRemotingServer != null) {
             this.fastRemotingServer.start();
         }
@@ -963,14 +967,17 @@ public class BrokerController {
             this.fileWatchService.start();
         }
 
+        // brokerOuterAPI的start，其实调用了Netty客户端的方法
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
 
+        // 分析消息拉取
         if (this.pullRequestHoldService != null) {
             this.pullRequestHoldService.start();
         }
 
+        // 启动一个定时器，用于扫描并清除产生异常的Channel缓存
         if (this.clientHousekeepingService != null) {
             this.clientHousekeepingService.start();
         }
@@ -979,8 +986,10 @@ public class BrokerController {
             this.filterServerManager.start();
         }
 
+        // Broker的HA策略,在非DLeger模式下
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             startProcessorByHa(messageStoreConfig.getBrokerRole());
+            // 同步元数据
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
             this.registerBrokerAll(true, false, true);
         }
@@ -1235,12 +1244,18 @@ public class BrokerController {
         return accessValidatorMap;
     }
 
+    /**
+     *  Broker的HA策略
+     * @param role
+     */
     private void handleSlaveSynchronize(BrokerRole role) {
         if (role == BrokerRole.SLAVE) {
             if (null != slaveSyncFuture) {
                 slaveSyncFuture.cancel(false);
             }
             this.slaveSynchronize.setMasterAddr(null);
+
+            // 会启动一个定时任务用来从master同步元数据
             slaveSyncFuture = this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
@@ -1252,6 +1267,8 @@ public class BrokerController {
                     }
                 }
             }, 1000 * 3, 1000 * 10, TimeUnit.MILLISECONDS);
+
+
         } else {
             //handle the slave synchronise
             if (null != slaveSyncFuture) {
@@ -1330,6 +1347,12 @@ public class BrokerController {
         log.info("Finish to change to master brokerName={}", brokerConfig.getBrokerName());
     }
 
+    /**
+     * 之后在非DLeger模式下，
+     * Master会启动事务消息检查，遍历未提交、未回滚的部分消息并向生产者发送检查请求以获取事务状态
+     * 进行偏移量的检查和计算等操作，并移除掉需要丢弃的消息
+     * @param role
+     */
     private void startProcessorByHa(BrokerRole role) {
         if (BrokerRole.SLAVE != role) {
             if (this.transactionalMessageCheckService != null) {
