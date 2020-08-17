@@ -113,6 +113,9 @@ public class BrokerStartup {
 
             // 用来封装其绝大多数基本配置信息
             final BrokerConfig brokerConfig = new BrokerConfig();
+            // 自己定义nameserver
+            brokerConfig.setNamesrvAddr("127.0.0.1:9876");
+            brokerConfig.setAutoCreateTopicEnable(true);
             // 封装了其作为对外暴露的消息队列服务器的信息 让NettyServerConfig默认监听10911端口
             final NettyServerConfig nettyServerConfig = new NettyServerConfig();
             nettyServerConfig.setListenPort(10911);

@@ -63,7 +63,7 @@ public class HAService {
         this.defaultMessageStore = defaultMessageStore;
         // HA服务线程，用以处理slave的连接
         this.acceptSocketService =
-            new AcceptSocketService(defaultMessageStore.getMessageStoreConfig().getHaListenPort());
+                new AcceptSocketService(defaultMessageStore.getMessageStoreConfig().getHaListenPort());
         this.groupTransferService = new GroupTransferService();
         this.haClient = new HAClient();
     }

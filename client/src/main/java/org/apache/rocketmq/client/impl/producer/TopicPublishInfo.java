@@ -68,8 +68,10 @@ public class TopicPublishInfo {
 
     public MessageQueue selectOneMessageQueue(final String lastBrokerName) {
         if (lastBrokerName == null) {
+            // 如果上一次使用的broker为空，则直接随机选择一个消息队列
             return selectOneMessageQueue();
         } else {
+            // 否则在现有消息队列中取出一个非上一次使用的broker中的消息队列
             int index = this.sendWhichQueue.getAndIncrement();
             for (int i = 0; i < this.messageQueueList.size(); i++) {
                 int pos = Math.abs(index++) % this.messageQueueList.size();
@@ -80,6 +82,7 @@ public class TopicPublishInfo {
                     return mq;
                 }
             }
+            // 不幸取到了相同的broker，再随机选取一个
             return selectOneMessageQueue();
         }
     }

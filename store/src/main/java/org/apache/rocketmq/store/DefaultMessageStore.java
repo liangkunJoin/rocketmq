@@ -154,7 +154,7 @@ public class DefaultMessageStore implements MessageStore {
             this.haService = null;
         }
 
-
+       // 分发消息定时任务，更新ConsumeQueue中消息偏移的
         this.reputMessageService = new ReputMessageService();
 
         this.scheduleMessageService = new ScheduleMessageService(this);
@@ -286,7 +286,7 @@ public class DefaultMessageStore implements MessageStore {
                             "clConfirmedOffset={}", maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(),
                                 this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
 
-            // 处理发送过来的消息服务
+            // 处理发送过来的消息服务，消息的消费
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
             this.reputMessageService.start();
 

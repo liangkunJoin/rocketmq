@@ -972,7 +972,19 @@ public class BrokerController {
             this.brokerOuterAPI.start();
         }
 
-        // 分析消息拉取
+        /**
+         * 通过研究源码可知，RocketMQ的消费方式都是基于拉模式拉取消息的，
+         * 而在这其中有一种长轮询机制（对普通轮询的一种优化），来平衡上面Push/Pull模型的各自缺点。
+         *
+         * 基本设计思路是：消费者如果第一次尝试Pull消息失败（比如：Broker端没有可以消费的消息），
+         * 并不立即给消费者客户端返回Response的响应，而是先hold住并且挂起请求（将请求保存至pullRequestTable本地缓存变量中），
+         * 然后Broker端的后台独立线程—PullRequestHoldService会从pullRequestTable本地缓存变量中不断地去取，
+         * 具体的做法是查询待拉取消息的偏移量是否小于消费队列最大偏移量，如果条件成立则说明有新消息达到Broker端
+         * （这里，在RocketMQ的Broker端会有一个后台独立线程—ReputMessageService不停地构建ConsumeQueue/IndexFile数据，
+         * 同时取出hold住的请求并进行二次处理），则通过重新调用一次业务处理器—PullMessageProcessor的处理请求方法
+         * —processRequest()来重新尝试拉取消息（此处，每隔5S重试一次，默认长轮询整体的时间设置为30s）。
+         * RocketMQ消息Pull的长轮询机制的关键在于Broker端的PullRequestHoldService和ReputMessageService两个后台线程
+         */
         if (this.pullRequestHoldService != null) {
             this.pullRequestHoldService.start();
         }
